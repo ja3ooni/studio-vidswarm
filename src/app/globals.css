@@ -8,62 +8,59 @@ body {
 
 @layer base {
   :root {
-    --background: 240 10% 3.9%;
+    --background: 263 50% 17%;
     --foreground: 0 0% 98%;
 
-    --card: 240 10% 3.9%;
+    --card: 263 47% 27%;
     --card-foreground: 0 0% 98%;
 
-    --popover: 240 10% 3.9%;
+    --popover: 263 47% 27%;
     --popover-foreground: 0 0% 98%;
 
-    --primary: 142.1 70.6% 45.3%;
-    --primary-foreground: 240 10% 3.9%;
+    --primary: 296 62% 59%;
+    --primary-foreground: 0 0% 98%;
 
-    --secondary: 240 4.8% 95.9%;
-    --secondary-foreground: 240 5.9% 10%;
+    --secondary: 270 30% 45%;
+    --secondary-foreground: 0 0% 98%;
 
-    --muted: 240 3.7% 15.9%;
-    --muted-foreground: 0 0% 63.9%;
+    --muted: 261 39% 36%; /* Used for feature buttons on dashboard */
+    --muted-foreground: 0 0% 98%; /* Text on feature buttons */
 
-    --accent: 142.1 70.6% 45.3%;
-    --accent-foreground: 240 10% 3.9%;
+    --accent: 296 62% 59%;
+    --accent-foreground: 0 0% 98%;
 
     --destructive: 0 62.8% 30.6%;
     --destructive-foreground: 0 0% 98%;
 
-    --border: 240 3.7% 15.9%;
-    --input: 240 3.7% 15.9%;
-    --ring: 142.1 70.6% 45.3%;
+    --border: 263 40% 35%;
+    --input: 263 40% 35%;
+    --ring: 296 62% 59%;
 
     --radius: 0.5rem;
 
-    /* Sidebar specific colors, derived from the new theme */
-    --sidebar-background: var(--muted); /* Uses a shade from the new theme */
+    /* Sidebar specific colors */
+    --sidebar-background: 263 50% 12%;
     --sidebar-foreground: var(--foreground);
     --sidebar-primary: var(--primary);
     --sidebar-primary-foreground: var(--primary-foreground);
     --sidebar-accent: var(--accent);
     --sidebar-accent-foreground: var(--accent-foreground);
-    --sidebar-border: var(--border);
+    --sidebar-border: 263 45% 20%;
     --sidebar-ring: var(--ring);
 
-    /* Font variables from target */
+    /* Font variables */
     --font-body: "Inter", sans-serif;
     --font-headline: "Poppins", sans-serif;
     --font-code: "Fira Code", monospace;
 
-    /* Custom layout vars from target */
-    --header-height: 4rem;
+    /* Custom layout vars */
+    --header-height: 4rem; /* Adjusted to match target if necessary, keeping current for now */
     --sidebar-width: 16rem;
     --sidebar-width-collapsed: 4rem;
   }
 
   .dark {
-    /* Base dark theme is now in :root. This block can be used for any specific .dark class overrides if needed,
-       but color variables are inherited from :root if not specified here.
-       For matching the target which seems dark-only defined in :root, this block is clear of color vars.
-    */
+    /* Variables are defined in :root for a dark-first approach */
   }
 }
 

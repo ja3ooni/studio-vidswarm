@@ -10,6 +10,7 @@ import {
   PanelLeft,
   Settings,
   Wand2,
+  Video // For the logo icon if needed directly
 } from 'lucide-react';
 
 import {
@@ -22,7 +23,7 @@ import {
   SidebarMenuItem,
   SidebarMenuButton,
   SidebarInset,
-  SidebarTrigger,
+  // SidebarTrigger is not explicitly used here, PanelLeft is used in MobileSidebarTrigger
   useSidebar,
 } from '@/components/ui/sidebar';
 import { Button } from '@/components/ui/button';
@@ -43,11 +44,18 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <SidebarProvider defaultOpen>
-      <Sidebar className="border-r" collapsible="icon">
-        <SidebarHeader className="p-4">
-          <Link href="/" className="flex items-center gap-2">
-            <Logo className="hidden group-data-[state=expanded]:block" />
-            <span className="sr-only group-data-[state=expanded]:hidden">VF</span>
+      <Sidebar className="border-r border-sidebar-border" collapsible="icon">
+        <SidebarHeader className="p-4 flex items-center justify-between group-data-[state=expanded]:justify-start">
+          <Link href="/" className="flex items-center gap-2 overflow-hidden">
+            {/* Logo for expanded state */}
+            <Logo className="hidden group-data-[state=expanded]:flex" showText={true}/>
+            {/* Icon-only for collapsed state */}
+            <div className="group-data-[state=collapsed]:flex hidden items-center justify-center w-8 h-8 bg-primary p-1.5 rounded-lg">
+              <Video className="h-5 w-5 text-primary-foreground" />
+            </div>
+             <span className="ml-1 px-1.5 py-0.5 text-[10px] font-medium bg-secondary text-secondary-foreground rounded-full group-data-[state=expanded]:inline hidden">
+              Beta
+            </span>
           </Link>
         </SidebarHeader>
         <SidebarContent>
@@ -59,7 +67,10 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                     asChild
                     isActive={pathname === item.href}
                     tooltip={{ children: item.label }}
-                    className={cn(pathname === item.href && "bg-sidebar-accent text-sidebar-accent-foreground", "justify-start")}
+                    className={cn(
+                      pathname === item.href && "bg-sidebar-accent text-sidebar-accent-foreground",
+                      "justify-start hover:bg-sidebar-accent/80"
+                    )}
                   >
                     <a>
                       <item.icon className="mr-2 h-5 w-5 flex-shrink-0" />
@@ -76,37 +87,24 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         <SidebarFooter>
            <SidebarMenu>
             <SidebarMenuItem>
-                <SidebarMenuButton asChild tooltip={{ children: "Settings" }} className="justify-start">
-                    <Link href="/settings">
+              <Link href="/settings" legacyBehavior passHref>
+                <SidebarMenuButton asChild tooltip={{ children: "Settings" }} className="justify-start hover:bg-sidebar-accent/80">
+                    <a>
                         <Settings className="mr-2 h-5 w-5 flex-shrink-0" />
                         <span className="group-data-[state=collapsed]:hidden">Settings</span>
-                    </Link>
+                    </a>
                 </SidebarMenuButton>
+              </Link>
             </SidebarMenuItem>
            </SidebarMenu>
         </SidebarFooter>
       </Sidebar>
-      <SidebarInset className="flex flex-col">
+      <SidebarInset className="flex flex-col bg-background"> {/* Ensure inset respects main background */}
         <HeaderNav />
-        <main className="flex-1 overflow-y-auto p-4 md:p-6 lg:p-8 bg-background">
+        <main className="flex-1 overflow-y-auto"> {/* Removed padding, dashboard will handle its own */}
           {children}
         </main>
       </SidebarInset>
     </SidebarProvider>
   );
-}
-
-function MobileSidebarTrigger() {
-    const { toggleSidebar } = useSidebar();
-    return (
-      <Button
-        variant="ghost"
-        size="icon"
-        className="md:hidden"
-        onClick={toggleSidebar}
-      >
-        <PanelLeft />
-        <span className="sr-only">Toggle Menu</span>
-      </Button>
-    );
 }
