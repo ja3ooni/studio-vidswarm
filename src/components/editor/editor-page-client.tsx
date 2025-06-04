@@ -1,22 +1,32 @@
 
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, type ChangeEvent, type FormEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { jsonAutoComplete, type JsonAutoCompleteOutput } from "@/ai/flows/json-auto-complete";
-import { Clapperboard, Loader2, UploadCloud, Film, Palette, AlertTriangle, Sparkles, PlayCircle, ExternalLink } from "lucide-react";
+import { Clapperboard, Loader2, UploadCloud, Film, Palette, AlertTriangle, Sparkles, PlayCircle, ExternalLink, FileUp } from "lucide-react";
 import Image from "next/image";
 import { Progress } from "@/components/ui/progress";
+import { Input } from "@/components/ui/input"; // Added for file input
+import { Label } from "@/components/ui/label"; // Added for file input
 
 interface EditorPageClientProps {
   projectId: string;
 }
 
 type RenderStatus = "idle" | "sending" | "polling" | "completed" | "failed";
+
+// Define a simple type for an Asset (this would be more detailed later)
+interface Asset {
+  id: string;
+  name: string;
+  url: string;
+  type: "image" | "video" | "audio";
+}
 
 const initialJson = `{
   "projectName": "My First VibeFlow Video",
@@ -66,6 +76,11 @@ export default function EditorPageClient({ projectId }: EditorPageClientProps) {
   const [currentPreviewImage, setCurrentPreviewImage] = useState("https://placehold.co/800x450.png?text=Video+Preview");
   const [aiHint, setAiHint] = useState("video placeholder");
 
+  // Asset Management State
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadedAssets, setUploadedAssets] = useState<Asset[]>([]); // Placeholder for fetched assets
+
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const pollingAttemptsRef = useRef(0);
 
@@ -75,9 +90,9 @@ export default function EditorPageClient({ projectId }: EditorPageClientProps) {
     try {
         const parsedJson = JSON.parse(currentJson);
         if (parsedJson.scenes && parsedJson.scenes[0] && parsedJson.scenes[0].elements) {
-            const firstImageElement = parsedJson.scenes[0].elements.find((el: any) => el.type === 'image' && el.src_placeholder);
+            const firstImageElement = parsedJson.scenes[0].elements.find((el: any) => el.type === 'image' && (el.src_placeholder || el.src));
             if (firstImageElement) {
-                setCurrentPreviewImage(firstImageElement.src_placeholder);
+                setCurrentPreviewImage(firstImageElement.src_placeholder || firstImageElement.src);
                 setAiHint(firstImageElement.data_ai_hint || "scene background");
             } else {
                 setCurrentPreviewImage("https://placehold.co/800x450.png?text=Preview");
@@ -100,11 +115,12 @@ export default function EditorPageClient({ projectId }: EditorPageClientProps) {
       description: "Ready to edit your video masterpiece.",
     });
     updatePreviewFromJSON(initialJson);
+    // In a real app, you'd fetch existing assets here:
+    // fetchAssets(); 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId, toast]);
 
   useEffect(() => {
-    // Cleanup polling on component unmount or if job completes/fails
     return () => {
       if (pollingIntervalRef.current) {
         clearInterval(pollingIntervalRef.current);
@@ -115,7 +131,7 @@ export default function EditorPageClient({ projectId }: EditorPageClientProps) {
   const handleJsonChange = (event: React.ChangeEvent<HTMLTextAreaElement>) => {
     const newJson = event.target.value;
     setJsonDefinition(newJson);
-    setOutputVideoUrl(null); // Reset video URL if JSON changes
+    setOutputVideoUrl(null); 
     setRenderStatus("idle");
     setRenderMessage(null);
     if (pollingIntervalRef.current) {
@@ -149,7 +165,7 @@ export default function EditorPageClient({ projectId }: EditorPageClientProps) {
 
   const pollJobStatus = async (currentJobId: string) => {
     pollingAttemptsRef.current += 1;
-    setRenderProgress(prev => Math.min(95, prev + (95 / MAX_POLLING_ATTEMPTS))); // Gradual progress
+    setRenderProgress(prev => Math.min(95, prev + (95 / MAX_POLLING_ATTEMPTS))); 
     
     if (pollingAttemptsRef.current > MAX_POLLING_ATTEMPTS) {
       if (pollingIntervalRef.current) clearInterval(pollingIntervalRef.current);
@@ -172,7 +188,7 @@ export default function EditorPageClient({ projectId }: EditorPageClientProps) {
 
       if (result.status === "completed") {
         if (pollingIntervalRef.current) clearInterval(pollingIntervalRef.current);
-        setOutputVideoUrl(result.outputUrl || null); // Assuming outputUrl is provided
+        setOutputVideoUrl(result.outputUrl || null); 
         setRenderStatus("completed");
         setRenderMessage("Video rendering complete!");
         setRenderProgress(100);
@@ -184,7 +200,6 @@ export default function EditorPageClient({ projectId }: EditorPageClientProps) {
         setRenderProgress(0);
         toast({ title: "Rendering Failed", description: result.error || "An error occurred during rendering.", variant: "destructive" });
       }
-      // If still processing, polling continues automatically
     } catch (error) {
       console.error("Error polling job status:", error);
       if (pollingIntervalRef.current) clearInterval(pollingIntervalRef.current);
@@ -198,7 +213,7 @@ export default function EditorPageClient({ projectId }: EditorPageClientProps) {
   const handleRenderVideo = async () => {
     setOutputVideoUrl(null);
     setRenderStatus("sending");
-    setRenderProgress(5); // Initial progress
+    setRenderProgress(5);
     setRenderMessage("Sending video definition to renderer...");
     toast({
       title: "Initializing Render...",
@@ -220,7 +235,7 @@ export default function EditorPageClient({ projectId }: EditorPageClientProps) {
       const response = await fetch('/api/toolkit/ffmpeg/compose', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ jsonDefinition: parsedJsonDefinition }), // Send parsed JSON
+        body: JSON.stringify({ jsonDefinition: parsedJsonDefinition }),
       });
 
       if (!response.ok) {
@@ -237,17 +252,13 @@ export default function EditorPageClient({ projectId }: EditorPageClientProps) {
       setRenderStatus("polling");
       setRenderMessage("Video sent to renderer. Waiting for progress...");
       setRenderProgress(10);
-      pollingAttemptsRef.current = 0; // Reset attempts for new job
+      pollingAttemptsRef.current = 0; 
       
-      // Clear previous interval if any
       if (pollingIntervalRef.current) {
         clearInterval(pollingIntervalRef.current);
       }
-      // Start polling
       pollingIntervalRef.current = setInterval(() => pollJobStatus(result.jobId), POLLING_INTERVAL);
-      // Initial poll immediately
       pollJobStatus(result.jobId);
-
 
     } catch (error) {
       console.error("Error rendering video:", error);
@@ -267,10 +278,61 @@ export default function EditorPageClient({ projectId }: EditorPageClientProps) {
       const parsed = JSON.parse(jsonDefinition);
       const formattedJson = JSON.stringify(parsed, null, 2);
       setJsonDefinition(formattedJson);
-      // No need to update preview here as content is the same
       toast({ title: "JSON Formatted", description: "The JSON definition has been beautified."});
     } catch (error) {
       toast({ title: "Formatting Error", description: "Invalid JSON. Cannot format.", variant: "destructive"});
+    }
+  };
+
+  const handleFileChange = (event: ChangeEvent<HTMLInputElement>) => {
+    if (event.target.files && event.target.files[0]) {
+      setSelectedFile(event.target.files[0]);
+    } else {
+      setSelectedFile(null);
+    }
+  };
+
+  const handleUploadAsset = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!selectedFile) {
+      toast({ title: "No File Selected", description: "Please select a file to upload.", variant: "destructive" });
+      return;
+    }
+
+    setIsUploading(true);
+    const formData = new FormData();
+    formData.append("file", selectedFile);
+    // You can append other metadata if needed, e.g., formData.append("userId", "user123");
+
+    try {
+      const response = await fetch("/api/assets/upload", {
+        method: "POST",
+        body: formData,
+      });
+
+      if (!response.ok) {
+        const errorResult = await response.json();
+        throw new Error(errorResult.message || "File upload failed");
+      }
+
+      const newAsset = await response.json(); // Assuming the API returns the new asset's data
+      // In a real app, you'd add this newAsset to your uploadedAssets state
+      // and potentially refetch the asset list.
+      // For now, we'll just log it and show a toast.
+      console.log("Uploaded asset:", newAsset); 
+      setUploadedAssets(prev => [...prev, {id: newAsset.id || Date.now().toString(), name: newAsset.fileName, url: newAsset.url, type: 'image'}]); // Example update
+      setSelectedFile(null); // Clear the selected file
+      // Clear the file input visually (this is a bit tricky with controlled file inputs)
+      const fileInput = event.target as HTMLFormElement;
+      fileInput.reset();
+
+
+      toast({ title: "Upload Successful", description: `${selectedFile.name} uploaded.` });
+    } catch (error) {
+      console.error("Error uploading asset:", error);
+      toast({ title: "Upload Failed", description: error instanceof Error ? error.message : "Could not upload file.", variant: "destructive" });
+    } finally {
+      setIsUploading(false);
     }
   };
 
@@ -305,7 +367,6 @@ export default function EditorPageClient({ projectId }: EditorPageClientProps) {
 
 
       <div className="flex-1 grid grid-cols-1 lg:grid-cols-3 gap-4 overflow-hidden">
-        {/* JSON Editor Panel */}
         <Card className="lg:col-span-1 flex flex-col shadow-lg overflow-hidden">
           <CardHeader className="pb-2">
             <CardTitle className="font-headline text-xl">JSON Definition</CardTitle>
@@ -329,14 +390,12 @@ export default function EditorPageClient({ projectId }: EditorPageClientProps) {
           </CardContent>
         </Card>
 
-        {/* Preview and Tools Panel */}
         <Card className="lg:col-span-2 flex flex-col shadow-lg overflow-hidden">
           <CardHeader className="pb-2">
             <CardTitle className="font-headline text-xl">Preview & Tools</CardTitle>
              <CardDescription>Visualize your video and manage assets or scene details.</CardDescription>
           </CardHeader>
           <CardContent className="flex-1 grid grid-rows-[auto_1fr] gap-4 p-4 overflow-hidden">
-            {/* Video Preview */}
             <div className="bg-muted rounded-lg aspect-video flex items-center justify-center overflow-hidden border border-border shadow-inner">
               {renderStatus === "completed" && outputVideoUrl ? (
                 <div className="w-full h-full flex flex-col items-center justify-center">
@@ -368,13 +427,12 @@ export default function EditorPageClient({ projectId }: EditorPageClientProps) {
                   height={450}
                   className="object-contain max-w-full max-h-full"
                   data-ai-hint={aiHint}
-                  key={currentPreviewImage} // Force re-render on src change
+                  key={currentPreviewImage} 
                   priority
                 />
               )}
             </div>
 
-            {/* Tools Tabs */}
             <Tabs defaultValue="assets" className="flex flex-col overflow-hidden">
               <TabsList className="shrink-0">
                 <TabsTrigger value="assets"><UploadCloud className="mr-2 h-4 w-4" /> Assets</TabsTrigger>
@@ -382,13 +440,57 @@ export default function EditorPageClient({ projectId }: EditorPageClientProps) {
                 <TabsTrigger value="appearance"><Palette className="mr-2 h-4 w-4" /> Appearance</TabsTrigger>
                 <TabsTrigger value="issues"><AlertTriangle className="mr-2 h-4 w-4" /> Issues</TabsTrigger>
               </TabsList>
-              <TabsContent value="assets" className="flex-1 overflow-y-auto p-2 bg-background rounded-b-md border border-t-0 border-border">
-                <div className="text-center py-10">
-                  <UploadCloud className="mx-auto h-12 w-12 text-muted-foreground" />
-                  <h3 className="mt-2 text-sm font-medium text-foreground">Asset Management</h3>
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    Upload and manage your images, videos, and audio files here. (Feature coming soon)
-                  </p>
+              <TabsContent value="assets" className="flex-1 flex flex-col overflow-y-auto p-4 bg-background rounded-b-md border border-t-0 border-border space-y-4">
+                <div>
+                  <h3 className="text-lg font-medium text-foreground mb-2">Upload New Asset</h3>
+                  <form onSubmit={handleUploadAsset} className="space-y-3">
+                    <div>
+                      <Label htmlFor="assetFile" className="sr-only">Choose file</Label>
+                      <Input
+                        id="assetFile"
+                        type="file"
+                        onChange={handleFileChange}
+                        className="text-sm file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-primary file:text-primary-foreground hover:file:bg-primary/90"
+                      />
+                    </div>
+                    {selectedFile && <p className="text-xs text-muted-foreground">Selected: {selectedFile.name}</p>}
+                    <Button type="submit" disabled={isUploading || !selectedFile} className="w-full">
+                      {isUploading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileUp className="mr-2 h-4 w-4" />}
+                      Upload Asset
+                    </Button>
+                  </form>
+                </div>
+                <div className="flex-1">
+                  <h3 className="text-lg font-medium text-foreground mb-2">My Assets</h3>
+                  {uploadedAssets.length === 0 ? (
+                    <div className="text-center py-10 border-2 border-dashed border-border rounded-md">
+                      <UploadCloud className="mx-auto h-10 w-10 text-muted-foreground" />
+                      <p className="mt-2 text-sm text-muted-foreground">
+                        No assets uploaded yet. Upload files to see them here.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+                      {uploadedAssets.map((asset) => (
+                        <Card key={asset.id} className="overflow-hidden">
+                          <CardContent className="p-0">
+                            {asset.type === 'image' && (
+                              <Image src={asset.url || "https://placehold.co/200x150.png?text=Asset"} alt={asset.name} width={200} height={150} className="object-cover w-full aspect-[4/3]" data-ai-hint="uploaded asset" />
+                            )}
+                             {(asset.type === 'video' || asset.type === 'audio') && (
+                               <div className="w-full aspect-[4/3] bg-muted flex items-center justify-center" data-ai-hint="media placeholder">
+                                <Film className="w-10 h-10 text-muted-foreground"/>
+                               </div>
+                             )}
+                          </CardContent>
+                          <div className="p-2 text-xs border-t">
+                            <p className="font-medium truncate" title={asset.name}>{asset.name}</p>
+                            {/* Add actions like select, delete, preview later */}
+                          </div>
+                        </Card>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </TabsContent>
               <TabsContent value="scene-details" className="flex-1 overflow-y-auto p-2 bg-background rounded-b-md border border-t-0 border-border">
