@@ -20,12 +20,17 @@ export async function GET(
   }
 
   try {
+    const headers: HeadersInit = {
+      // 'Content-Type': 'application/json', // Removed as it's not needed for GET and caused issues
+    };
+    if (TOOLKIT_API_KEY) {
+        headers['X-API-Key'] = TOOLKIT_API_KEY;
+    }
+
+
     const response = await fetch(`${TOOLKIT_API_BASE_URL}/v1/toolkit/job/status/${jobId}`, {
       method: 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-API-Key': TOOLKIT_API_KEY,
-      },
+      headers: headers,
     });
 
     if (!response.ok) {

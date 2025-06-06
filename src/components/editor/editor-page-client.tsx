@@ -1,18 +1,18 @@
 
 "use client";
 
-import { useState, useEffect, useRef, type ChangeEvent, type FormEvent } from "react";
+import { useState, useEffect, useRef, type ChangeEvent, type FormEvent, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { jsonAutoComplete, type JsonAutoCompleteOutput } from "@/ai/flows/json-auto-complete";
-import { Clapperboard, Loader2, UploadCloud, Film, Palette, AlertTriangle, Sparkles, PlayCircle, ExternalLink, FileUp } from "lucide-react";
-import Image from "next/image";
+import { Clapperboard, Loader2, UploadCloud, Film, Palette, AlertTriangle, Sparkles, PlayCircle, ExternalLink, FileUp, Image as ImageIconLucide, Music, VideoIcon as VideoIconLucide } from "lucide-react"; // Renamed to avoid conflict
+import Image from "next/image"; // For Next/Image component
 import { Progress } from "@/components/ui/progress";
-import { Input } from "@/components/ui/input"; // Added for file input
-import { Label } from "@/components/ui/label"; // Added for file input
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 
 interface EditorPageClientProps {
   projectId: string;
@@ -20,13 +20,18 @@ interface EditorPageClientProps {
 
 type RenderStatus = "idle" | "sending" | "polling" | "completed" | "failed";
 
-// Define a simple type for an Asset (this would be more detailed later)
 interface Asset {
-  id: string;
-  name: string;
-  url: string;
-  type: "image" | "video" | "audio";
+  id: string;         // Unique ID from database
+  fileName: string;   // Original filename
+  url: string;        // Public URL (e.g., from R2)
+  r2Key: string;      // Key in R2 bucket
+  mimeType: string;
+  size: number;       // Size in bytes
+  assetType: 'image' | 'video' | 'audio' | 'other';
+  createdAt?: string;  // ISO date string from database
+  // userId?: string; // For future use
 }
+
 
 const initialJson = `{
   "projectName": "My First VibeFlow Video",
@@ -61,8 +66,8 @@ const initialJson = `{
   ]
 }`;
 
-const POLLING_INTERVAL = 3000; // 3 seconds
-const MAX_POLLING_ATTEMPTS = 20; // Poll for a maximum of 1 minute (20 * 3s)
+const POLLING_INTERVAL = 3000; 
+const MAX_POLLING_ATTEMPTS = 20; 
 
 export default function EditorPageClient({ projectId }: EditorPageClientProps) {
   const [jsonDefinition, setJsonDefinition] = useState(initialJson);
@@ -76,17 +81,17 @@ export default function EditorPageClient({ projectId }: EditorPageClientProps) {
   const [currentPreviewImage, setCurrentPreviewImage] = useState("https://placehold.co/800x450.png?text=Video+Preview");
   const [aiHint, setAiHint] = useState("video placeholder");
 
-  // Asset Management State
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
-  const [uploadedAssets, setUploadedAssets] = useState<Asset[]>([]); // Placeholder for fetched assets
+  const [uploadedAssets, setUploadedAssets] = useState<Asset[]>([]);
+  const [isLoadingAssets, setIsLoadingAssets] = useState(true);
 
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const pollingAttemptsRef = useRef(0);
 
   const { toast } = useToast();
 
-  const updatePreviewFromJSON = (currentJson: string) => {
+  const updatePreviewFromJSON = useCallback((currentJson: string) => {
     try {
         const parsedJson = JSON.parse(currentJson);
         if (parsedJson.scenes && parsedJson.scenes[0] && parsedJson.scenes[0].elements) {
@@ -106,8 +111,31 @@ export default function EditorPageClient({ projectId }: EditorPageClientProps) {
         setCurrentPreviewImage("https://placehold.co/800x450.png?text=Error+in+JSON");
         setAiHint("error display");
     }
-  };
+  }, []);
 
+
+  const fetchAssets = useCallback(async () => {
+    setIsLoadingAssets(true);
+    try {
+      const response = await fetch('/api/assets');
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || 'Failed to fetch assets');
+      }
+      const assetsData: Asset[] = await response.json();
+      setUploadedAssets(assetsData);
+    } catch (error) {
+      console.error("Error fetching assets:", error);
+      toast({
+        title: "Error Fetching Assets",
+        description: error instanceof Error ? error.message : "Could not load your assets.",
+        variant: "destructive",
+      });
+      setUploadedAssets([]); 
+    } finally {
+      setIsLoadingAssets(false);
+    }
+  }, [toast]);
 
   useEffect(() => {
     toast({
@@ -115,10 +143,8 @@ export default function EditorPageClient({ projectId }: EditorPageClientProps) {
       description: "Ready to edit your video masterpiece.",
     });
     updatePreviewFromJSON(initialJson);
-    // In a real app, you'd fetch existing assets here:
-    // fetchAssets(); 
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projectId, toast]);
+    fetchAssets();
+  }, [projectId, toast, updatePreviewFromJSON, fetchAssets]); // fetchAssets added to dependency array
 
   useEffect(() => {
     return () => {
@@ -163,7 +189,7 @@ export default function EditorPageClient({ projectId }: EditorPageClientProps) {
     }
   };
 
-  const pollJobStatus = async (currentJobId: string) => {
+  const pollJobStatus = useCallback(async (currentJobId: string) => {
     pollingAttemptsRef.current += 1;
     setRenderProgress(prev => Math.min(95, prev + (95 / MAX_POLLING_ATTEMPTS))); 
     
@@ -208,7 +234,7 @@ export default function EditorPageClient({ projectId }: EditorPageClientProps) {
       setRenderProgress(0);
       toast({ title: "Polling Error", description: "Could not check rendering status.", variant: "destructive" });
     }
-  };
+  }, [toast]);
 
   const handleRenderVideo = async () => {
     setOutputVideoUrl(null);
@@ -258,7 +284,7 @@ export default function EditorPageClient({ projectId }: EditorPageClientProps) {
         clearInterval(pollingIntervalRef.current);
       }
       pollingIntervalRef.current = setInterval(() => pollJobStatus(result.jobId), POLLING_INTERVAL);
-      pollJobStatus(result.jobId);
+      // pollJobStatus(result.jobId); // Call immediately to start polling
 
     } catch (error) {
       console.error("Error rendering video:", error);
@@ -302,7 +328,6 @@ export default function EditorPageClient({ projectId }: EditorPageClientProps) {
     setIsUploading(true);
     const formData = new FormData();
     formData.append("file", selectedFile);
-    // You can append other metadata if needed, e.g., formData.append("userId", "user123");
 
     try {
       const response = await fetch("/api/assets/upload", {
@@ -315,19 +340,18 @@ export default function EditorPageClient({ projectId }: EditorPageClientProps) {
         throw new Error(errorResult.message || "File upload failed");
       }
 
-      const newAsset = await response.json(); // Assuming the API returns the new asset's data
-      // In a real app, you'd add this newAsset to your uploadedAssets state
-      // and potentially refetch the asset list.
-      // For now, we'll just log it and show a toast.
-      console.log("Uploaded asset:", newAsset); 
-      setUploadedAssets(prev => [...prev, {id: newAsset.id || Date.now().toString(), name: newAsset.fileName, url: newAsset.url, type: 'image'}]); // Example update
-      setSelectedFile(null); // Clear the selected file
-      // Clear the file input visually (this is a bit tricky with controlled file inputs)
+      const newAsset: Asset = await response.json(); 
+      // Add to beginning of list so new uploads are visible immediately
+      // And re-fetch all assets to ensure consistency if others are adding
+      setUploadedAssets(prev => [newAsset, ...prev.filter(a => a.id !== newAsset.id)]); 
+      // Or better yet, just call fetchAssets() again to refresh the whole list from DB
+      // await fetchAssets(); // Uncomment if you prefer to refresh the entire list from DB
+
+      setSelectedFile(null); 
       const fileInput = event.target as HTMLFormElement;
       fileInput.reset();
 
-
-      toast({ title: "Upload Successful", description: `${selectedFile.name} uploaded.` });
+      toast({ title: "Upload Successful", description: `${newAsset.fileName} uploaded.` });
     } catch (error) {
       console.error("Error uploading asset:", error);
       toast({ title: "Upload Failed", description: error instanceof Error ? error.message : "Could not upload file.", variant: "destructive" });
@@ -337,6 +361,41 @@ export default function EditorPageClient({ projectId }: EditorPageClientProps) {
   };
 
   const isProcessing = renderStatus === "sending" || renderStatus === "polling";
+
+  const renderAssetPreview = (asset: Asset) => {
+    switch (asset.assetType) {
+      case 'image':
+        return (
+          <Image 
+            src={asset.url || "https://placehold.co/200x150.png?text=Image"} 
+            alt={asset.fileName} 
+            width={200} 
+            height={150} 
+            className="object-cover w-full aspect-[4/3]" 
+            data-ai-hint="uploaded image"
+            unoptimized // If R2 URLs are not automatically optimized by Next/Image
+          />
+        );
+      case 'video':
+        return (
+          <div className="w-full aspect-[4/3] bg-muted flex items-center justify-center text-muted-foreground" data-ai-hint="uploaded video">
+            <VideoIconLucide className="w-10 h-10"/>
+          </div>
+        );
+      case 'audio':
+        return (
+          <div className="w-full aspect-[4/3] bg-muted flex items-center justify-center text-muted-foreground" data-ai-hint="uploaded audio">
+            <Music className="w-10 h-10"/>
+          </div>
+        );
+      default:
+        return (
+          <div className="w-full aspect-[4/3] bg-muted flex items-center justify-center text-muted-foreground" data-ai-hint="uploaded file">
+            <FileUp className="w-10 h-10"/>
+          </div>
+        );
+    }
+  };
 
   return (
     <div className="flex flex-col h-[calc(100vh-var(--header-height,4rem)-2rem)] gap-4 p-1">
@@ -360,7 +419,7 @@ export default function EditorPageClient({ projectId }: EditorPageClientProps) {
       {(isProcessing || renderStatus === "completed" || renderStatus === "failed") && (
         <div className="my-2">
           {renderMessage && <p className="text-sm text-muted-foreground mb-1">{renderMessage}</p>}
-          {(isProcessing || renderStatus === "failed" && renderProgress > 0) && <Progress value={renderProgress} className="w-full h-2" />}
+          {(isProcessing || (renderStatus === "failed" && renderProgress > 0)) && <Progress value={renderProgress} className="w-full h-2" />}
            {renderStatus === "completed" && !outputVideoUrl && <p className="text-sm text-yellow-500">Render complete, but no video URL was provided by the API.</p>}
         </div>
       )}
@@ -462,7 +521,9 @@ export default function EditorPageClient({ projectId }: EditorPageClientProps) {
                 </div>
                 <div className="flex-1">
                   <h3 className="text-lg font-medium text-foreground mb-2">My Assets</h3>
-                  {uploadedAssets.length === 0 ? (
+                  {isLoadingAssets ? (
+                     <div className="text-center py-10"><Loader2 className="mx-auto h-10 w-10 text-muted-foreground animate-spin" /><p className="mt-2 text-sm text-muted-foreground">Loading assets...</p></div>
+                  ) :uploadedAssets.length === 0 ? (
                     <div className="text-center py-10 border-2 border-dashed border-border rounded-md">
                       <UploadCloud className="mx-auto h-10 w-10 text-muted-foreground" />
                       <p className="mt-2 text-sm text-muted-foreground">
@@ -472,20 +533,15 @@ export default function EditorPageClient({ projectId }: EditorPageClientProps) {
                   ) : (
                     <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
                       {uploadedAssets.map((asset) => (
-                        <Card key={asset.id} className="overflow-hidden">
+                        <Card key={asset.id} className="overflow-hidden shadow-md hover:shadow-lg transition-shadow duration-200">
                           <CardContent className="p-0">
-                            {asset.type === 'image' && (
-                              <Image src={asset.url || "https://placehold.co/200x150.png?text=Asset"} alt={asset.name} width={200} height={150} className="object-cover w-full aspect-[4/3]" data-ai-hint="uploaded asset" />
-                            )}
-                             {(asset.type === 'video' || asset.type === 'audio') && (
-                               <div className="w-full aspect-[4/3] bg-muted flex items-center justify-center" data-ai-hint="media placeholder">
-                                <Film className="w-10 h-10 text-muted-foreground"/>
-                               </div>
-                             )}
+                            {renderAssetPreview(asset)}
                           </CardContent>
-                          <div className="p-2 text-xs border-t">
-                            <p className="font-medium truncate" title={asset.name}>{asset.name}</p>
-                            {/* Add actions like select, delete, preview later */}
+                          <div className="p-2 text-xs border-t border-border">
+                            <p className="font-medium truncate text-foreground" title={asset.fileName}>{asset.fileName}</p>
+                            <p className="text-muted-foreground truncate" title={asset.mimeType}>{asset.mimeType}</p>
+                            <p className="text-muted-foreground">{(asset.size / (1024*1024)).toFixed(2)} MB</p>
+                            {asset.createdAt && <p className="text-muted-foreground text-[10px]">Uploaded: {new Date(asset.createdAt).toLocaleDateString()}</p>}
                           </div>
                         </Card>
                       ))}
@@ -527,4 +583,3 @@ export default function EditorPageClient({ projectId }: EditorPageClientProps) {
     </div>
   );
 }
-

@@ -2,12 +2,13 @@
 // src/app/api/assets/upload/route.ts
 import { type NextRequest, NextResponse } from 'next/server';
 import AWS from 'aws-sdk';
+import { supabaseAdmin } from '@/lib/supabase/server';
 
 const CLOUDFLARE_ACCOUNT_ID = process.env.CLOUDFLARE_ACCOUNT_ID;
 const CLOUDFLARE_ACCESS_KEY_ID = process.env.CLOUDFLARE_ACCESS_KEY_ID;
 const CLOUDFLARE_SECRET_ACCESS_KEY = process.env.CLOUDFLARE_SECRET_ACCESS_KEY;
 const R2_BUCKET_NAME = process.env.R2_BUCKET_NAME;
-const R2_PUBLIC_URL_BASE = process.env.R2_PUBLIC_URL_BASE; // Optional: For custom domains
+const R2_PUBLIC_URL_BASE = process.env.R2_PUBLIC_URL_BASE; 
 
 if (
   !CLOUDFLARE_ACCOUNT_ID ||
@@ -26,6 +27,19 @@ const s3 = new AWS.S3({
   s3ForcePathStyle: true, // Required for R2
 });
 
+function getAssetType(mimeType: string): 'image' | 'video' | 'audio' | 'other' {
+  if (mimeType.startsWith('image/')) {
+    return 'image';
+  }
+  if (mimeType.startsWith('video/')) {
+    return 'video';
+  }
+  if (mimeType.startsWith('audio/')) {
+    return 'audio';
+  }
+  return 'other';
+}
+
 export async function POST(request: NextRequest) {
   if (
     !CLOUDFLARE_ACCOUNT_ID ||
@@ -34,6 +48,10 @@ export async function POST(request: NextRequest) {
     !R2_BUCKET_NAME
   ) {
     return NextResponse.json({ message: 'Cloudflare R2 environment variables not configured on the server.' }, { status: 500 });
+  }
+
+  if (!supabaseAdmin) {
+    return NextResponse.json({ message: 'Supabase admin client not initialized. Check server logs for details.' }, { status: 500 });
   }
 
   try {
@@ -45,59 +63,74 @@ export async function POST(request: NextRequest) {
     }
 
     const fileBuffer = Buffer.from(await file.arrayBuffer());
-    const fileName = `uploads/${Date.now()}-${file.name.replace(/\s+/g, '_')}`; // Sanitize and prefix file name
+    const sanitizedFileName = file.name.replace(/[^a-zA-Z0-9_.-]/g, '_'); // Sanitize file name
+    const fileNameKey = `uploads/${Date.now()}-${sanitizedFileName}`;
 
     const uploadParams = {
       Bucket: R2_BUCKET_NAME,
-      Key: fileName,
+      Key: fileNameKey,
       Body: fileBuffer,
       ContentType: file.type,
-      ACL: 'public-read', // Make file publicly accessible
+      ACL: 'public-read', 
     };
 
-    const r2UploadResponse = await s3.upload(uploadParams).promise();
+    await s3.upload(uploadParams).promise();
     
-    let storageUrl = r2UploadResponse.Location;
-
-    // If a custom public URL base is defined, construct the URL with it.
-    // Otherwise, R2 public URL structure is typically: https://<bucket>.<account_id>.r2.cloudflarestorage.com/<key>
-    // Or if you have a public bucket URL configured: https://pub-<bucket_id>.r2.dev/<key>
-    // The .Location from S3 SDK for R2 often gives the direct endpoint URL, which might not be what you want for public access if you use a custom domain or public bucket URL.
-    // Adjust this logic based on how you've configured your R2 bucket for public access.
-    if (R2_PUBLIC_URL_BASE) {
-        storageUrl = `${R2_PUBLIC_URL_BASE}/${fileName}`;
+    let storageUrl = `${R2_PUBLIC_URL_BASE}/${fileNameKey}`;
+    if (R2_PUBLIC_URL_BASE && !R2_PUBLIC_URL_BASE.endsWith('/')) {
+        storageUrl = `${R2_PUBLIC_URL_BASE}/${fileNameKey}`;
+    } else if (R2_PUBLIC_URL_BASE) {
+        storageUrl = `${R2_PUBLIC_URL_BASE}${fileNameKey}`;
     } else {
-        // Default public URL for R2 (may need adjustment based on bucket settings)
-        // Check your R2 bucket's public access settings.
-        // If you have a "Public URL" like pub-xxxxxxxx.r2.dev, use that pattern.
-        // For now, we'll assume the Location is correct or you'll set R2_PUBLIC_URL_BASE if needed.
-        // A common pattern for public access without a custom domain if bucket is public:
-        // storageUrl = `https://pub-${R2_BUCKET_NAME.toLowerCase()}.${CLOUDFLARE_ACCOUNT_ID}.r2.dev/${fileName}`;
-        // However, r2UploadResponse.Location should ideally give the accessible URL if ACL is public-read.
+        // Fallback if R2_PUBLIC_URL_BASE is somehow not set, though it should be by now.
+        storageUrl = `https://${R2_BUCKET_NAME}.${CLOUDFLARE_ACCOUNT_ID}.r2.cloudflarestorage.com/${fileNameKey}`;
+        console.warn("R2_PUBLIC_URL_BASE not set, using constructed R2 URL. Please set it in .env");
     }
 
 
-    // --- Placeholder for Database Interaction ---
-    // In a real implementation:
-    // 1. Save asset metadata (fileName, storageUrl, mimeType, size, userId, etc.) to your database.
-    //    const assetMetadata = { originalName: file.name, storageKey: fileName, storageUrl, mimeType: file.type, size: file.size, userId: 'temp-user' /* Get actual user ID */ };
-    //    // const dbResponse = await saveToDatabase(assetMetadata);
-    // --- End Placeholder ---
+    const assetType = getAssetType(file.type);
 
-    console.log(`File uploaded to R2: ${file.name} at ${storageUrl}`);
-
-    const assetData = {
-      id: `r2-asset-${Date.now()}`, // Generate a unique ID (DB would do this)
-      fileName: file.name, // Original file name
-      r2Key: fileName, // Key in R2
-      url: storageUrl, // Publicly accessible URL from R2
-      mimeType: file.type,
+    const assetToInsert = {
+      file_name: file.name,
+      r2_key: fileNameKey,
+      url: storageUrl,
+      mime_type: file.type,
       size: file.size,
-      // userId: 'user123', // Add user association later
-      // createdAt: new Date().toISOString(),
+      asset_type: assetType,
+      // user_id: null, // Add user_id when authentication is implemented
+    };
+    
+    const { data: dbData, error: dbError } = await supabaseAdmin
+      .from('assets')
+      .insert(assetToInsert)
+      .select()
+      .single();
+
+    if (dbError) {
+      console.error('Supabase insert error:', dbError);
+      throw new Error(`Failed to save asset metadata to database: ${dbError.message}`);
+    }
+
+    if (!dbData) {
+        throw new Error('Failed to save asset metadata: No data returned from database.');
+    }
+
+    console.log(`File uploaded to R2: ${file.name} at ${storageUrl} and metadata saved to Supabase.`);
+
+    // Return the structure expected by the client (map Supabase fields to client Asset interface)
+    const clientAssetData = {
+        id: dbData.id,
+        fileName: dbData.file_name,
+        r2Key: dbData.r2_key,
+        url: dbData.url,
+        mimeType: dbData.mime_type,
+        size: dbData.size,
+        assetType: dbData.asset_type as 'image' | 'video' | 'audio' | 'other',
+        createdAt: dbData.created_at,
     };
 
-    return NextResponse.json(assetData, { status: 201 });
+
+    return NextResponse.json(clientAssetData, { status: 201 });
 
   } catch (error) {
     console.error('Error in asset R2 upload API:', error);
