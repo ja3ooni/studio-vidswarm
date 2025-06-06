@@ -10,6 +10,8 @@ const TOOLKIT_API_KEY = process.env.TOOLKIT_API_KEY;
 // For debugging: Log to see if the environment variables are loaded on the server
 console.log('[API Test Route] TOOLKIT_API_BASE_URL loaded:', !!TOOLKIT_API_BASE_URL);
 console.log('[API Test Route] TOOLKIT_API_KEY loaded:', !!TOOLKIT_API_KEY);
+console.log('[API Test Route] TOOLKIT_API_KEY value for request:', TOOLKIT_API_KEY); // Log the actual key value
+
 if (!TOOLKIT_API_BASE_URL) {
   console.error('[API Test Route] TOOLKIT_API_BASE_URL is not defined. Check your .env file and ensure the server was restarted.');
 }
@@ -22,25 +24,37 @@ export async function GET(request: NextRequest) {
   if (TOOLKIT_API_BASE_URL === 'YOUR_DIGITAL_OCEAN_API_BASE_URL_HERE' || !TOOLKIT_API_BASE_URL) {
     return NextResponse.json({ error: 'Toolkit API base URL not configured. Please check server logs and .env file.' }, { status: 500 });
   }
-  // Allow unauthed for local dev if needed by setting TOOLKIT_API_KEY to a specific value like "local_dev_unauthed_DEPRECATED"
-  // However, for actual testing against your DO API, a key is needed.
-  if ((TOOLKIT_API_KEY === 'YOUR_TOOLKIT_API_KEY_HERE' || !TOOLKIT_API_KEY) && TOOLKIT_API_BASE_URL !== 'http://localhost:8000') { 
-    return NextResponse.json({ error: 'Toolkit API key not configured. Please check server logs and .env file.' }, { status: 500 });
+  
+  if ((TOOLKIT_API_KEY === 'YOUR_TOOLKIT_API_KEY_HERE' || !TOOLKIT_API_KEY || TOOLKIT_API_KEY === undefined) && TOOLKIT_API_BASE_URL !== 'http://localhost:8000') { 
+    // Added TOOLKIT_API_KEY === undefined for robustness
+    return NextResponse.json({ error: 'Toolkit API key not configured or invalid. Please check server logs and .env file.' }, { status: 500 });
   }
 
   try {
+    const headers: HeadersInit = {
+      // 'Content-Type': 'application/json', // Temporarily removed for GET request
+    };
+    if (TOOLKIT_API_KEY) { // Only add X-API-Key if it's defined
+        headers['X-API-Key'] = TOOLKIT_API_KEY;
+    }
+
+
     const response = await fetch(`${TOOLKIT_API_BASE_URL}/v1/toolkit/test`, {
       method: 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-API-Key': TOOLKIT_API_KEY, 
-      },
+      headers: headers,
     });
 
     if (!response.ok) {
-      const errorData = await response.text();
-      console.error('Error from toolkit API:', errorData);
-      return NextResponse.json({ error: `Toolkit API error: ${response.statusText}`, details: errorData }, { status: response.status });
+      const errorData = await response.text(); // Get raw text
+      console.error(`Error from toolkit API (status ${response.status}):`, errorData);
+      // Try to parse as JSON if it's a structured error, otherwise return text
+      try {
+        const jsonError = JSON.parse(errorData); // This might fail if errorData is HTML
+        return NextResponse.json({ error: `Toolkit API error: ${response.statusText}`, details: jsonError }, { status: response.status });
+      } catch (e) {
+        // If errorData is HTML (like the 400 bad request page), it will be returned here
+        return NextResponse.json({ error: `Toolkit API error: ${response.statusText}`, details: errorData }, { status: response.status });
+      }
     }
 
     const data = await response.json();
