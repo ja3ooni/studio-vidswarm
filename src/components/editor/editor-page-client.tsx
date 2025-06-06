@@ -8,8 +8,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { jsonAutoComplete, type JsonAutoCompleteOutput } from "@/ai/flows/json-auto-complete";
-import { Clapperboard, Loader2, UploadCloud, Film, Palette, AlertTriangle, Sparkles, PlayCircle, ExternalLink, FileUp, Image as ImageIcon, Music, VideoIcon } from "lucide-react";
-import Image from "next/image";
+import { Clapperboard, Loader2, UploadCloud, Film, Palette, AlertTriangle, Sparkles, PlayCircle, ExternalLink, FileUp, Image as ImageIconLucide, Music, VideoIcon as VideoIconLucide } from "lucide-react"; // Renamed to avoid conflict
+import Image from "next/image"; // For Next/Image component
 import { Progress } from "@/components/ui/progress";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -21,15 +21,15 @@ interface EditorPageClientProps {
 type RenderStatus = "idle" | "sending" | "polling" | "completed" | "failed";
 
 interface Asset {
-  id: string;
-  fileName: string;
-  url: string;
-  r2Key: string;
+  id: string;         // Unique ID from database
+  fileName: string;   // Original filename
+  url: string;        // Public URL (e.g., from R2)
+  r2Key: string;      // Key in R2 bucket
   mimeType: string;
-  size: number;
+  size: number;       // Size in bytes
   assetType: 'image' | 'video' | 'audio' | 'other';
+  createdAt?: string;  // ISO date string from database
   // userId?: string; // For future use
-  // createdAt?: string; // For future use
 }
 
 
@@ -119,7 +119,8 @@ export default function EditorPageClient({ projectId }: EditorPageClientProps) {
     try {
       const response = await fetch('/api/assets');
       if (!response.ok) {
-        throw new Error('Failed to fetch assets');
+        const errorData = await response.json();
+        throw new Error(errorData.message || 'Failed to fetch assets');
       }
       const assetsData: Asset[] = await response.json();
       setUploadedAssets(assetsData);
@@ -130,7 +131,7 @@ export default function EditorPageClient({ projectId }: EditorPageClientProps) {
         description: error instanceof Error ? error.message : "Could not load your assets.",
         variant: "destructive",
       });
-      setUploadedAssets([]); // Set to empty on error
+      setUploadedAssets([]); 
     } finally {
       setIsLoadingAssets(false);
     }
@@ -143,8 +144,7 @@ export default function EditorPageClient({ projectId }: EditorPageClientProps) {
     });
     updatePreviewFromJSON(initialJson);
     fetchAssets();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projectId, toast, updatePreviewFromJSON, fetchAssets]);
+  }, [projectId, toast, updatePreviewFromJSON, fetchAssets]); // fetchAssets added to dependency array
 
   useEffect(() => {
     return () => {
@@ -341,7 +341,12 @@ export default function EditorPageClient({ projectId }: EditorPageClientProps) {
       }
 
       const newAsset: Asset = await response.json(); 
-      setUploadedAssets(prev => [newAsset, ...prev]); // Add to beginning of list
+      // Add to beginning of list so new uploads are visible immediately
+      // And re-fetch all assets to ensure consistency if others are adding
+      setUploadedAssets(prev => [newAsset, ...prev.filter(a => a.id !== newAsset.id)]); 
+      // Or better yet, just call fetchAssets() again to refresh the whole list from DB
+      // await fetchAssets(); // Uncomment if you prefer to refresh the entire list from DB
+
       setSelectedFile(null); 
       const fileInput = event.target as HTMLFormElement;
       fileInput.reset();
@@ -368,12 +373,13 @@ export default function EditorPageClient({ projectId }: EditorPageClientProps) {
             height={150} 
             className="object-cover w-full aspect-[4/3]" 
             data-ai-hint="uploaded image"
+            unoptimized // If R2 URLs are not automatically optimized by Next/Image
           />
         );
       case 'video':
         return (
           <div className="w-full aspect-[4/3] bg-muted flex items-center justify-center text-muted-foreground" data-ai-hint="uploaded video">
-            <VideoIcon className="w-10 h-10"/>
+            <VideoIconLucide className="w-10 h-10"/>
           </div>
         );
       case 'audio':
@@ -385,7 +391,7 @@ export default function EditorPageClient({ projectId }: EditorPageClientProps) {
       default:
         return (
           <div className="w-full aspect-[4/3] bg-muted flex items-center justify-center text-muted-foreground" data-ai-hint="uploaded file">
-            <FileUp className="w-10 h-10"/> {/* Or a generic file icon */}
+            <FileUp className="w-10 h-10"/>
           </div>
         );
     }
@@ -523,7 +529,6 @@ export default function EditorPageClient({ projectId }: EditorPageClientProps) {
                       <p className="mt-2 text-sm text-muted-foreground">
                         No assets uploaded yet. Upload files to see them here.
                       </p>
-                       {/* In a real app with a DB, you might fetch assets on load. For now, this message is shown if the list is empty. */}
                     </div>
                   ) : (
                     <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
@@ -536,7 +541,7 @@ export default function EditorPageClient({ projectId }: EditorPageClientProps) {
                             <p className="font-medium truncate text-foreground" title={asset.fileName}>{asset.fileName}</p>
                             <p className="text-muted-foreground truncate" title={asset.mimeType}>{asset.mimeType}</p>
                             <p className="text-muted-foreground">{(asset.size / (1024*1024)).toFixed(2)} MB</p>
-                            {/* Add actions like select, delete, preview later */}
+                            {asset.createdAt && <p className="text-muted-foreground text-[10px]">Uploaded: {new Date(asset.createdAt).toLocaleDateString()}</p>}
                           </div>
                         </Card>
                       ))}

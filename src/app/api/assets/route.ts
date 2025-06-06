@@ -1,53 +1,48 @@
 
 // src/app/api/assets/route.ts
 import { NextResponse } from 'next/server';
+import { supabaseAdmin } from '@/lib/supabase/server';
 
-// Define the Asset type - this should ideally be shared, but for now, define it here
-// This structure should align with what you plan to store in your database
+// This should match the client-side Asset interface in EditorPageClient
 interface ApiAsset {
-  id: string;         // Unique ID from database
-  fileName: string;   // Original filename
-  url: string;        // Public URL (e.g., from R2)
-  r2Key: string;      // Key in R2 bucket (for internal reference or deletion)
+  id: string;
+  fileName: string;
+  url: string;
+  r2Key: string;
   mimeType: string;
-  size: number;       // Size in bytes
-  assetType: 'image' | 'video' | 'audio' | 'other'; // Derived from mimeType
-  userId?: string;     // Optional: for multi-user systems
-  createdAt?: string;  // Optional: ISO date string
+  size: number;
+  assetType: 'image' | 'video' | 'audio' | 'other';
+  createdAt?: string; 
+  // userId?: string; // For future use
 }
 
 export async function GET() {
-  // In a real application, you would fetch asset metadata from your database here.
-  // For now, we'll return an empty array as no database is connected.
-  const assets: ApiAsset[] = []; 
-
-  // Example of mock data if you want to test the UI without a DB yet:
-  /*
-  const assets: ApiAsset[] = [
-    {
-      id: 'mock-asset-1',
-      fileName: 'example-image.png',
-      url: 'https://placehold.co/200x150.png?text=Mock+Image',
-      r2Key: 'uploads/mock-example-image.png',
-      mimeType: 'image/png',
-      size: 10240,
-      assetType: 'image',
-      createdAt: new Date().toISOString(),
-    },
-    {
-      id: 'mock-asset-2',
-      fileName: 'example-video.mp4',
-      url: 'https://placehold.co/200x150.png?text=Mock+Video', // Placeholder URL
-      r2Key: 'uploads/mock-example-video.mp4',
-      mimeType: 'video/mp4',
-      size: 512000,
-      assetType: 'video',
-      createdAt: new Date().toISOString(),
-    },
-  ];
-  */
+  if (!supabaseAdmin) {
+    return NextResponse.json({ message: 'Supabase admin client not initialized. Check server logs.' }, { status: 500 });
+  }
 
   try {
+    const { data, error } = await supabaseAdmin
+      .from('assets')
+      .select('id, file_name, url, r2_key, mime_type, size, asset_type, created_at')
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.error('Supabase fetch error:', error);
+      throw new Error(`Failed to fetch assets from database: ${error.message}`);
+    }
+    
+    const assets: ApiAsset[] = data.map(item => ({
+        id: item.id,
+        fileName: item.file_name,
+        url: item.url,
+        r2Key: item.r2_key,
+        mimeType: item.mime_type,
+        size: item.size,
+        assetType: item.asset_type as 'image' | 'video' | 'audio' | 'other',
+        createdAt: item.created_at,
+    }));
+
     return NextResponse.json(assets, { status: 200 });
   } catch (error) {
     console.error('Error fetching assets:', error);
